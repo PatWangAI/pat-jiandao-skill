@@ -1,10 +1,10 @@
 [project]
-name = "ai-jianji"
-version = "0.0.1"
-description = "AI 剪辑 skill：口播粗剪、按句配素材、左下角圆形小窗和字幕"
+name = "pat-jiandao-skill"
+version = "0.8.3"
+description = "Pat 剪刀 · AI 剪辑 skill：把手机录的中文口播剪成带中英字幕的成片"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # torchaudio 2.9 起 load() 改走 TorchCodec，和 FunASR 的兼容没核实，固定在 2.8.0（技术说明第 5 节）
+    # torchaudio 2.9 起 load() 改走 TorchCodec，和 FunASR 的兼容没核实，固定在 2.8.0
     "torch==2.8.0",
     "torchaudio==2.8.0",
     "funasr==1.4.16",

@@ -226,7 +226,7 @@ def check_optional() -> None:
            "" if key else "在 pixabay.com 登录后打开 API 文档页取免费密钥，写进 ~/.zshrc：export PIXABAY_API_KEY=…（不要贴进聊天）")
     cc = shutil.which("claude")
     report("Claude Code", "有" if cc else "可选缺", cc or "命令行里没找到（用桌面版也行）",
-           "" if cc else "装 Claude Code 桌面版或命令行版，在仓库文件夹里打开")
+           "" if cc else "用 TRAE 的不用装；用 Claude Code 的装桌面版或命令行版，在仓库文件夹里打开")
 
 
 def main() -> None:

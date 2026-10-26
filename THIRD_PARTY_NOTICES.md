@@ -18,12 +18,12 @@
 
 | 用途 | 模型 | ModelScope 页面标的许可 |
 | --- | --- | --- |
-| 识别 | iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch | Apache License 2.0 |
-| 断句 | iic/speech_fsmn_vad_zh-cn-16k-common-pytorch | Apache License 2.0 |
-| 标点 | iic/punc_ct-transformer_cn-en-common-vocab471067-large | Apache License 2.0 |
+| 识别 | [iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch](https://www.modelscope.cn/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch) | Apache License 2.0 |
+| 断句 | [iic/speech_fsmn_vad_zh-cn-16k-common-pytorch](https://www.modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch) | Apache License 2.0 |
+| 标点 | [iic/punc_ct-transformer_cn-en-common-vocab471067-large](https://www.modelscope.cn/models/iic/punc_ct-transformer_cn-en-common-vocab471067-large) | Apache License 2.0 |
 
 - 作者：FunASR 团队（Alibaba Group），https://github.com/modelscope/FunASR
-- FunASR 的模型协议（FunASR Model Open Source License Agreement）要求使用、复制、修改、分享时注明来源和作者、保留模型名字。本项目不分发模型文件，也不改模型。
+- FunASR 的模型协议（FunASR Model Open Source License Agreement，https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE ）要求使用、复制、修改、分享时注明来源和作者、保留模型名字。本项目不分发模型文件，也不改模型。
 
 ### Python 库
 
@@ -50,10 +50,14 @@
 - Google Chrome（可选，找素材时截网页）：用户自己装。
 - Pixabay 图库接口（可选）：每个用户用自己申请的密钥，放在环境变量里，仓库不带密钥。用接口要守 Pixabay 的条款（https://pixabay.com/api/docs/ ），比如注明素材来源、不大批量自动下载；下到的图片和视频按 Pixabay Content License 用。
 
-## 四、素材的版权
+## 四、借鉴过做法的项目
+
+本仓库的代码是自己写的，下面几个项目的做法给了思路，代码注释里也写了出处：ffmpeg-skill（MIT，环境检查）、video-use（MIT，按停顿分段的阅读稿、贴给助手就能装的说明）、chengfeng-videocut-skills（Apache-2.0，没有讲稿时的五轮扫描、两张表、自读、按术语表改字；scripts/plan_cuts.py 里重复句子表的表头照用了它的写法）、OpenMontage（用一份步骤清单管流程的想法）。链接见 README 的“致谢”。
+
+## 五、素材的版权
 
 skill 会按你的讲稿截网页、下图库素材、放背景音乐，并写一份 来源清单.md。这些素材的版权属于原作者，用在视频里是否合适，由用的人自己判断；发布前请看来源清单。遇到网站拦截程序访问，skill 不绕过。仓库里不带任何背景音乐、图库素材和网页截图。
 
-## 五、商标
+## 六、商标
 
 Claude、Claude Code 是 Anthropic 的商标；TRAE、剪映是字节跳动旗下的产品；FFmpeg、Pixabay、ModelScope 等名称属于各自的所有者。本项目与这些公司和项目没有隶属或背书关系，提到它们只是为了说明怎么配合使用。

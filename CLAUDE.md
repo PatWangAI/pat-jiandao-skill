@@ -11,6 +11,7 @@
 - 设置：config.yaml（字体、小窗、响度、转场这些参数和默认路径）；config.local.yaml（本机的路径，不进仓库，样例 config.local.example.yaml），写了的项覆盖 config.yaml。
 
 ## 规矩
+- 代码和设置的注释里提到的 SPEC、PRD、立项卡、技术说明、阶段 N、第 NN 期，指作者没公开的开发文档和往期视频，不用去找。
 - 不动系统 Python，用 uv 另建 3.12 的环境。
 - 密钥（Pixabay 的 PIXABAY_API_KEY）只放环境变量，不写进仓库、不贴进聊天。
 - 视频、音频、素材、runs/、config.local.yaml 不提交。

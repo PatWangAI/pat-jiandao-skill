@@ -1,4 +1,4 @@
-"""从 ModelScope 下载转写用的三个 FunASR 模型（共约 2.2 GB），存在 ~/.cache/modelscope。
+"""从 ModelScope 下载转写用的三个 FunASR 模型（共约 2.1 GB），存在 ~/.cache/modelscope。
 
 用法：uv run python scripts/download_models.py
 已下载的文件不会重复下载。

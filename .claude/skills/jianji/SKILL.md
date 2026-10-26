@@ -70,7 +70,7 @@ allowed-tools:
 ## 竖屏
 
 用户说要竖屏（抖音、小红书这类）时用：成片 1080×1920，没配素材的句子人脸全屏，配了素材的句子整屏换成素材，不叠小窗。默认关：不说竖屏就照旧出 16:9、左下角圆形小窗。
-- 怎么打开：第 1 步加 `--vertical`，inputs.json 记 `"vertical": true`。已经建好的文件夹补跑一次 `prepare.py --video <原片> --vertical` 就会改上，从 compose.py 起重跑。原片竖的横的都行：竖的人脸整幅放大；横的按 9:16 裁一条，对着 work/pip.json 取景的中心（没有就取正中）。
+- 怎么打开：第 1 步加 `--vertical`，inputs.json 记 `"vertical": true`。已经建好的文件夹补跑一次 `prepare.py --video <原片> --vertical` 就会改上，从 compose.py 起重跑。原片竖的横的都行：竖的人脸整幅放大；横的按 9:16 裁一条，对着 work/pip.json 取景的中心（没有就取正中；横拍原片出竖屏只算过几何，没实际出过片，出完要仔细看）。
 - 和 16:9 不一样的只有这几处，其余照常：
   - 默认整片人脸、不配素材（竖屏口播大多不要素材）：粗剪认可后不找素材，shots.json 每句 asset 写 `"人脸"`、effect 写“无”、不写 transition（人脸接人脸，程序默认硬切），接着写英文字幕、出预览。给用户看预览时提一句“哪几句想配画面可以说”，不主动列素材清单。没有讲稿的，--script-from-cut 照旧要跑（分句要用）。
   - 用户说要加素材（说了哪几句、想放什么，或者让 Claude 挑几句）：只给这几句写 素材/plan.json，放人脸的句子不写（fetch_assets.py 竖屏时不查这几句，会列出哪几句放人脸），照“找素材”一节取，素材清单先给用户确认；shots.json 里这几句写素材，其余照旧人脸。
@@ -82,7 +82,7 @@ allowed-tools:
 
 ## 步骤
 
-1. 准备：跑 `uv run python scripts/prepare.py --list`，把最新的 3 个原片（视频和录音都列，录音标“录音”）、找到的讲稿和默认名称列给用户，等用户选定（用户给了路径就用用户给的）；没找到讲稿时问用户有没有，没有就按“没有讲稿”一节加 `--no-script`。再跑 `prepare.py --video <原片> --script <讲稿> --name <名称>`，只用声音的视频加 `--no-face`（见“无人脸模式”一节），要竖屏加 `--vertical`（见“竖屏”一节），用户说节奏紧一点、停顿短一点加 `--pace 紧`（剪口和压过的停顿只留约 0.15 秒，标准约 0.3 秒；片头不带开口前的杂音）。原片不移动、不改名。
+1. 准备：跑 `uv run python scripts/prepare.py --list`，把最新的 3 个原片（视频和录音都列，录音标“录音”）、找到的讲稿和默认名称列给用户，等用户选定（用户给了路径就用用户给的）；没找到讲稿时问用户有没有，没有就按“没有讲稿”一节加 `--no-script`。用户给的讲稿不是 docs/讲稿样例.md 的样子（没有“## 讲稿全文”一节、句子没按“1. ”编号，或者是 Word、纯文本），先照样例整理成一份 .md 放进视频文件夹，给用户看过再用 `--script` 指过去，意思和句子都不改。再跑 `prepare.py --video <原片> --script <讲稿> --name <名称>`，只用声音的视频加 `--no-face`（见“无人脸模式”一节），要竖屏加 `--vertical`（见“竖屏”一节），用户说节奏紧一点、停顿短一点加 `--pace 紧`（剪口和压过的停顿只留约 0.15 秒，标准约 0.3 秒；片头不带开口前的杂音）。原片不移动、不改名。
 2. 预处理：`uv run python scripts/preprocess.py <文件夹>`。说是 HDR 就停，请用户关掉 iPhone 的“HDR 视频”重录（无人脸模式不查）。
 3. 转写：`uv run python scripts/transcribe.py <文件夹>`。
 4. 方案：读 work/transcript.md、work/transcript.json 的 tokens（每个字的序号 i）和讲稿全文（`prepare.py --script-text <文件夹>`），写 work/deletions.json：

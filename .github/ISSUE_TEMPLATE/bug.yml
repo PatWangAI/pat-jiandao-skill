@@ -66,5 +66,5 @@ body:
     attributes:
       label: 发之前
       options:
-        - label: 我看过了，贴的内容里没有密钥（比如 PIXABAY_KEY 的值）和我不想公开的个人信息。
+        - label: 我看过了，贴的内容里没有密钥（比如 PIXABAY_API_KEY 的值）和我不想公开的个人信息（环境检查的输出里有 /Users/你的用户名，不想公开可以换成 ~）。
           required: true
