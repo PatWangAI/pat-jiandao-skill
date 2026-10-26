@@ -82,7 +82,7 @@ allowed-tools:
 
 ## 步骤
 
-1. 准备：跑 `uv run python scripts/prepare.py --list`，把最新的 3 个原片（视频和录音都列，录音标“录音”）、找到的讲稿和默认名称列给用户，等用户选定（用户给了路径就用用户给的）；没找到讲稿时问用户有没有，没有就按“没有讲稿”一节加 `--no-script`。再跑 `prepare.py --video <原片> --script <讲稿> --name <名称>`，只用声音的视频加 `--no-face`（见“无人脸模式”一节），要竖屏加 `--vertical`（见“竖屏”一节）。原片不移动、不改名。
+1. 准备：跑 `uv run python scripts/prepare.py --list`，把最新的 3 个原片（视频和录音都列，录音标“录音”）、找到的讲稿和默认名称列给用户，等用户选定（用户给了路径就用用户给的）；没找到讲稿时问用户有没有，没有就按“没有讲稿”一节加 `--no-script`。再跑 `prepare.py --video <原片> --script <讲稿> --name <名称>`，只用声音的视频加 `--no-face`（见“无人脸模式”一节），要竖屏加 `--vertical`（见“竖屏”一节），用户说节奏紧一点、停顿短一点加 `--pace 紧`（剪口和压过的停顿只留约 0.15 秒，标准约 0.3 秒；片头不带开口前的杂音）。原片不移动、不改名。
 2. 预处理：`uv run python scripts/preprocess.py <文件夹>`。说是 HDR 就停，请用户关掉 iPhone 的“HDR 视频”重录（无人脸模式不查）。
 3. 转写：`uv run python scripts/transcribe.py <文件夹>`。
 4. 方案：读 work/transcript.md、work/transcript.json 的 tokens（每个字的序号 i）和讲稿全文（`prepare.py --script-text <文件夹>`），写 work/deletions.json：
@@ -99,6 +99,7 @@ allowed-tools:
 6. 剪辑表：`uv run python scripts/validate_edl.py <文件夹>/work/edl.json`，通过才往下。
 7. 剪：
    - `uv run python scripts/cut_audio.py <文件夹>`（剪声音，再转写一遍复核，自动挪刀最多 3 轮）。
+     复核报某个接缝旁多出字（替换），而那里正是用户选删的连读待定：多半是语气词和后面的字连着说、尾巴没切干净（演示片的“哎救不回来”就是这样，换 blank_cut 也没切净）。把这一点告诉用户，再出一版不删的粗剪给他对照，由他选。
    - `uv run python scripts/make_subtitles.py <文件夹>`，读 <运行>/subtitles_auto.json。
    - 对照讲稿写 <运行>/subtitles.json：`{"lines": [{"text": "…", "from_token": 起, "to_token": 止}]}`，不写时间。改认错的词（Astra、ChatGPT、Codex、越权、GPT-5.6 这类），数字按讲稿写（48%、10 月）；按讲稿的断句调整每行管哪几个字；每行不超过 16 个字（英文字母、数字两个算一个）；句末标点去掉，句中逗号换成空格，问号、书名号、引号保留。讲稿和实际说的不一样时，以实际说的为准。每个要进字幕的字恰好属于一行，顺序不变。
    - `uv run python scripts/render_rough.py <文件夹>`。字幕校验不过就按报错改 subtitles.json 重跑。
@@ -126,6 +127,7 @@ allowed-tools:
 ## 改了怎么重跑
 
 - 用户说要改哪条删不删、哪段停顿压不压：改 deletions.json 或 decisions.json，从第 4 步的 plan_cuts.py 起重跑。
+- 嫌剪口、停顿空得久：补跑 `prepare.py --video <原片> --pace 紧`，从 plan_cuts.py 起重跑（字幕的字不用重写，subtitles.json 照用，从 make_subtitles.py 那步把它放回新的运行目录）。
 - 只改字幕：改 <运行>/subtitles.json，从 render_rough.py 起重跑，再跑 check.py；出过成片的，再从 compose.py 起重跑。
 - 只改配素材、动效或转场：改 work/shots.json，从 compose.py 起重跑。
 - 只换背景音乐或改音量：换 素材/bgm.* 和 bgm.json，或改 config.local.yaml 的 bgm_lufs，从 render_final.py 起重跑。

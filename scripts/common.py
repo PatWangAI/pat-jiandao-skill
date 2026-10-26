@@ -53,6 +53,12 @@ LONG_PAUSE = 0.45   # 长于 0.45 秒的停顿才压
 PAUSE_KEEP = 0.15   # 压停顿时两边各留 0.15 秒
 SEAM_KEEP = 0.3     # 删除处接缝两边一共留约 0.3 秒
 EDGE_KEEP = 0.15    # 片头片尾各留 0.15 秒
+# 节奏（开源首发 10-26 加）：“标准”就是上面这几个数，和以前一样；“紧”的剪口、压过的停顿合起来只留约 0.15 秒，
+# 片头片尾各留 0.1 秒，第一个字前面隔着长停顿的声音（按录制键、吸气）不算片头。剪辑表记 pace，复核挪刀时照同一个节奏算
+PACES = {
+    "标准": {"pause_keep": PAUSE_KEEP, "seam_keep": SEAM_KEEP, "edge_keep": EDGE_KEEP, "skip_lead_noise": False},
+    "紧": {"pause_keep": 0.075, "seam_keep": 0.15, "edge_keep": 0.1, "skip_lead_noise": True},
+}
 FADE = 0.008        # 每个保留段头尾淡入淡出 8 毫秒，防爆音
 MAX_CHARS = 16      # 字幕每行不超过 16 个字
 
@@ -426,20 +432,26 @@ def apply_pauses(edl: dict, loud: Loudness, pauses_keep: list | None = None) -> 
     """
     dur = edl["duration_frames"]
     pauses_keep = pauses_keep or []
+    pace = PACES[edl.get("pace", "标准")]
+    pause_keep, seam_keep, edge_keep = pace["pause_keep"], pace["seam_keep"], pace["edge_keep"]
     first, last = loud.speech_span()
-    start = max(0, math.floor((first - EDGE_KEEP) * FPS + 1e-9))
-    end = min(dur, math.ceil((last + EDGE_KEEP) * FPS - 1e-9))
+    if pace["skip_lead_noise"] and "first_word_s" in edl:
+        w = loud.sound_start_after(max(0.0, edl["first_word_s"] - 0.3))  # 第一个字的声音从哪起（字的时间常偏早）
+        if w - loud.sound_end_before(w) > LONG_PAUSE:  # 前面隔着长停顿的声音不是说话
+            first = max(first, w)
+    start = max(0, math.floor((first - edge_keep) * FPS + 1e-9))
+    end = min(dur, math.ceil((last + edge_keep) * FPS - 1e-9))
     zones = []  # 每处删除碰到的范围：左边声音结束到右边声音开始，长停顿不能碰
     for d in edl["deletions"]:
         if d["out_how"] == "片头":
             rs = loud.sound_start_after(d["in_snap"] / FPS)
             d["out_frame"] = 0
-            d["in_frame"] = max(d["in_snap"], math.floor((rs - EDGE_KEEP) * FPS + 1e-9))
+            d["in_frame"] = max(d["in_snap"], math.floor((rs - edge_keep) * FPS + 1e-9))
             start = max(start, d["in_frame"])
             zones.append((0.0, rs))
         elif d["in_how"] == "片尾":
             ls = loud.sound_end_before(d["out_snap"] / FPS)
-            d["out_frame"] = min(d["out_snap"], math.ceil((ls + EDGE_KEEP) * FPS - 1e-9))
+            d["out_frame"] = min(d["out_snap"], math.ceil((ls + edge_keep) * FPS - 1e-9))
             d["in_frame"] = dur
             end = min(end, d["out_frame"])
             zones.append((ls, dur / FPS))
@@ -449,10 +461,10 @@ def apply_pauses(edl: dict, loud: Loudness, pauses_keep: list | None = None) -> 
             gl, gr = max(0.0, out_t - ls), max(0.0, rs - in_t)
             d["out_frame"], d["in_frame"] = d["out_snap"], d["in_snap"]
             if gl + gr > LONG_PAUSE:
-                kl = min(gl, PAUSE_KEEP)
-                kr = min(gr, SEAM_KEEP - kl)
-                if kl + kr < SEAM_KEEP:
-                    kl = min(gl, SEAM_KEEP - kr)
+                kl = min(gl, pause_keep)
+                kr = min(gr, seam_keep - kl)
+                if kl + kr < seam_keep:
+                    kl = min(gl, seam_keep - kr)
                 d["out_frame"] = min(d["out_snap"], math.ceil((ls + kl) * FPS - 1e-9))
                 d["in_frame"] = max(d["in_snap"], math.floor((rs - kr) * FPS + 1e-9))
             zones.append((ls, rs))
@@ -467,12 +479,12 @@ def apply_pauses(edl: dict, loud: Loudness, pauses_keep: list | None = None) -> 
             continue
         if any(a < kb and b > ka for ka, kb in pauses_keep):
             continue
-        o = math.ceil((a + PAUSE_KEEP) * FPS - 1e-9)
-        i = math.floor((b - PAUSE_KEEP) * FPS + 1e-9)
+        o = math.ceil((a + pause_keep) * FPS - 1e-9)
+        i = math.floor((b - pause_keep) * FPS + 1e-9)
         if i - o < 1:
             continue
         pauses.append({"id": len(pauses) + 1, "type": "长停顿", "out_frame": o, "in_frame": i,
                        "quiet": [round(a, 3), round(b, 3)],
-                       "reason": f"{b - a:.2f} 秒的停顿压到约 {2 * PAUSE_KEEP:.1f} 秒"})
+                       "reason": f"{b - a:.2f} 秒的停顿压到约 {format(round(2 * pause_keep, 2), 'g')} 秒"})
     edl["pauses"] = pauses
     return edl

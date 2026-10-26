@@ -3,7 +3,7 @@
 用法：
   uv run python scripts/prepare.py --list
       列出最新的 3 个原片候选和找到的讲稿，给用户选
-  uv run python scripts/prepare.py --video <原片> [--script <讲稿> | --no-script] [--name <名称>] [--no-face] [--vertical]
+  uv run python scripts/prepare.py --video <原片> [--script <讲稿> | --no-script] [--name <名称>] [--no-face] [--vertical] [--pace 紧]
       建 <videos_root>/<日期_名称>/，复制原片，写 inputs.json。同一条原片（sha256 相同）已经有文件夹的，接着用。
       原片可以是视频，也可以是纯录音（m4a、wav、mp3 等，手机录音或语音备忘录）。
       --no-face：无人脸模式（2026-10-18 加），只用声音，成片不叠人脸小窗；inputs.json 记 "no_face": true。
@@ -12,6 +12,8 @@
       script 是空的。默认关：没加它又找不到讲稿时照旧停下，不自己改成无讲稿
       --vertical：出竖屏成片 1080×1920（第二期，2026-10-24 选的摆法 C：没配素材的句子人脸全屏，配了素材的句子
       整屏换成素材，不叠小窗）；inputs.json 记 "vertical": true。默认关，不说竖屏就照旧出 16:9。已经建好的文件夹补跑一次也能改上
+      --pace 紧：节奏紧一点（开源首发 10-26 加）：剪口和压过的停顿只留约 0.15 秒（标准约 0.3 秒），片头不带开口前的杂音；
+      inputs.json 记 "pace"。不加就照设置里的 pace（默认“标准”）。已经建好的文件夹补跑一次也能改上，从 plan_cuts.py 起重跑
   uv run python scripts/prepare.py --script-only [--script <讲稿>] [--name <名称>]
       还没录原片时，只按讲稿建 <videos_root>/<日期_名称>/（第 2 步找素材用）；原片来了用同一个名称接着用
   uv run python scripts/prepare.py --script-text <视频文件夹>
@@ -174,6 +176,7 @@ def main() -> None:
     ap.add_argument("--no-face", dest="no_face", action="store_true")
     ap.add_argument("--no-script", dest="no_script", action="store_true")
     ap.add_argument("--vertical", action="store_true")
+    ap.add_argument("--pace", choices=["标准", "紧"])
     ap.add_argument("--script-from-cut", dest="script_from_cut")
     a = ap.parse_args()
 
@@ -246,6 +249,10 @@ def main() -> None:
         if a.vertical and not inputs.get("vertical"):
             write_json(folder / "inputs.json", {**inputs, "vertical": True})
             print("改成出竖屏成片（inputs.json 记了 vertical），从 compose.py 起重跑")
+            inputs = read_json(folder / "inputs.json")
+        if a.pace and inputs.get("pace", "标准") != a.pace:
+            write_json(folder / "inputs.json", {**inputs, "pace": a.pace})
+            print(f"节奏改成“{a.pace}”（inputs.json 记了 pace），从 plan_cuts.py 起重跑")
         return
     name = a.name or default_name(script)
     folder = find_waiting(name) if script else None  # 只按讲稿建的文件夹，没讲稿时不会有
@@ -279,9 +286,10 @@ def main() -> None:
         **({"no_face": True} if no_face else {}),
         **({"no_script": True} if a.no_script else {}),
         **({"vertical": True} if a.vertical else {}),
+        **({"pace": a.pace} if a.pace else {}),
     })
     print(f"建好了：{folder}" + ("（无人脸模式：只用声音，成片不叠小窗）" if no_face else "")
-          + ("（没有讲稿：只靠转写稿判删除）" if a.no_script else "") + ("（出竖屏成片 1080×1920）" if a.vertical else ""))
+          + ("（没有讲稿：只靠转写稿判删除）" if a.no_script else "") + ("（出竖屏成片 1080×1920）" if a.vertical else "") + (f"（节奏：{a.pace}）" if a.pace else ""))
 
 
 if __name__ == "__main__":

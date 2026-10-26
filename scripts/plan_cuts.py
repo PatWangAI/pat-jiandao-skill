@@ -28,7 +28,7 @@ from pathlib import Path
 
 import soundfile as sf
 
-from common import (FPS, MIN_SOUND, SR, analyze, apply_pauses, blank_spans, fmt, frame_in_quiet, join_text,
+from common import (CONFIG, FPS, MIN_SOUND, PACES, SR, analyze, apply_pauses, blank_spans, fmt, frame_in_quiet, join_text,
                     keep_segments, min_volume_frame, nearest_quiet, quiet_over, read_json, sha256, write_json)
 from validate_edl import DEL_TYPES, edl_touched, validate
 
@@ -117,7 +117,10 @@ def main() -> None:
     dec_path = work / "decisions.json"
     dec = read_json(dec_path) if dec_path.exists() else {}
     no_script = bool(inputs.get("no_script"))
+    pace = inputs.get("pace") or CONFIG.get("pace") or "标准"  # 这条视频的节奏（prepare.py --pace），没写就照设置
     errs = check_deletions(dels, n, no_script) + check_decisions(dec)
+    if pace not in PACES:
+        errs.append(f"节奏只能是 {'、'.join(PACES)}，现在写的是“{pace}”")
     if errs:
         print("deletions.json 或 decisions.json 有错：")
         for e in errs:
@@ -215,6 +218,8 @@ def main() -> None:
         "transcript": "work/transcript.json", "transcript_sha256": sha256(work / "transcript.json"),
         "edges": {}, "deletions": deletions, "pauses": [], "pending": pending,
         **({"no_script": True} if no_script else {}),  # 没讲稿：字幕要用（make_subtitles.subtitle_tokens），有讲稿时不写这一项
+        # 节奏“紧”才写这两项（common.PACES）；标准节奏不写，剪辑表和以前一样
+        **({"pace": pace, "first_word_s": round(tok[0]["start"], 3)} if pace != "标准" else {}),
     }
     apply_pauses(edl, loud, dec.get("pauses_keep"))
     errs = validate(edl, folder)
@@ -354,7 +359,8 @@ def write_plan(path: Path, inputs: dict, edl: dict, items: list, kept: list, tok
     if edit:
         L += ["", f"## 改稿（{len(edit)} 处，你要求删掉的内容，不是口误）", "", *head]
         L += [row(d) for d in edit]
-    L += ["", f"## 长停顿（{len(edl['pauses'])} 处，压到约 0.3 秒）", "",
+    keep_s = format(round(2 * PACES[edl.get("pace", "标准")]["pause_keep"], 2), "g")  # 标准是 0.3，节奏紧是 0.15
+    L += ["", f"## 长停顿（{len(edl['pauses'])} 处，压到约 {keep_s} 秒）", "",
           "| 停顿 | 时间 | 位置 | 原长 |", "| --- | --- | --- | --- |"]
     for p in edl["pauses"]:
         a, b = p["quiet"]
