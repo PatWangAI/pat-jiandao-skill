@@ -1,0 +1,20 @@
+# 视频、音频、素材和运行产物不进 git
+*.mp4
+*.mov
+*.m4a
+*.wav
+*.mp3
+runs/
+assets/
+videos/
+# 环境和密钥
+.venv/
+__pycache__/
+node_modules/
+.env
+.DS_Store
+# 转写缓存（由原片生成，不进 git）
+cache/
+# 本机设置和个人说明（样例是 config.local.example.yaml）
+config.local.yaml
+CLAUDE.local.md

@@ -1,0 +1,22 @@
+[project]
+name = "ai-jianji"
+version = "0.0.1"
+description = "AI 剪辑 skill：口播粗剪、按句配素材、左下角圆形小窗和字幕"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # torchaudio 2.9 起 load() 改走 TorchCodec，和 FunASR 的兼容没核实，固定在 2.8.0（技术说明第 5 节）
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "funasr==1.4.16",
+    "modelscope==1.40.1",
+    "soundfile",
+    "numpy",
+    "pyyaml==6.0.3",
+    "playwright==1.55.0",
+    "pillow>=12.3.0",
+    "pyjianyingdraft==0.3.1",
+]
+
+[tool.uv]
+# 不加下限时 uv 会回退到 transformers 4.12，要现场编译 tokenizers（需要 Rust）
+constraint-dependencies = ["transformers>=4.45"]

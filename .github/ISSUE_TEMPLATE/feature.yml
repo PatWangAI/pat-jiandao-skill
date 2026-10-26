@@ -1,0 +1,20 @@
+name: 想要的功能
+description: 希望 skill 多做一件事，或者换一种做法
+title: "[功能] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: 这是个人维护的项目，不保证每个需求都会做；很多人提同一件事的，会优先考虑。
+  - type: textarea
+    id: what
+    attributes:
+      label: 想要什么
+      description: 你剪什么样的视频，卡在哪一步，希望它怎么做。
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: 现在是怎么解决的
+      description: 比如剪完再进剪映手动改，或者换别的工具。

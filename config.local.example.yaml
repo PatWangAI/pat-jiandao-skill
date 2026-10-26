@@ -1,0 +1,25 @@
+# 本机设置的样例。复制一份叫 config.local.yaml（它不进仓库），只留要改的几行：
+#   cp config.local.example.yaml config.local.yaml
+# 写了的项覆盖 config.yaml 的同名项；没写的用 config.yaml 的默认值。~ 是自己的主文件夹。
+# 改完跑一遍环境检查：uv run python scripts/doctor.py
+
+# 每条视频一个文件夹，都放在这下面（原片的复制件、素材、中间结果、成片）。没有会自动建
+videos_root: ~/视频制作
+
+# 去哪找原片：剪的时候列这些文件夹里最新的 3 个视频或录音给你选。也可以剪的时候直接给路径
+video_dirs:
+  - ~/Downloads
+  - ~/Desktop
+
+# 去哪找讲稿（可以不写）：这个文件夹下期号最大的“第NN期_…”文件夹里，文件名含“讲稿”、版本号最高的一份
+# scripts_root: ~/Documents/讲稿
+
+# ffmpeg-full 不在默认位置时才写（Intel 芯片的 Mac 一般是 /usr/local/opt/ffmpeg-full/bin/ffmpeg）
+# ffmpeg: /usr/local/opt/ffmpeg-full/bin/ffmpeg
+# ffprobe: /usr/local/opt/ffmpeg-full/bin/ffprobe
+
+# skill 里用到的本机文件（可以都不写）
+# finish_standard: ~/Documents/成片标准_*.md       # 成片标准，取日期最新的一份
+# default_bgm_dir: ~/视频制作/默认背景音乐          # 默认背景音乐：bgm_1_*.mp3、bgm_2_*.mp3 和 bgm.json
+# run_log: ~/视频制作/运行记录.md                   # 每剪一条记一行的运行记录（不写就是这个位置）
+# jianying_drafts: ~/Movies/JianyingPro/User Data/Projects/com.lveditor.draft   # 剪映草稿文件夹，不在默认位置时才写

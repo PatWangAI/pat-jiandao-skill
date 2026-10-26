@@ -1,0 +1,70 @@
+name: 装不上或报错
+description: 安装、环境检查或剪片时出错了
+title: "[报错] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这是个人维护的项目，回复可能会慢。先在仓库文件夹里跑一遍环境检查，很多问题它会直接告诉你缺什么、怎么装：
+
+        ```
+        uv run python scripts/doctor.py
+        ```
+  - type: textarea
+    id: doctor
+    attributes:
+      label: 环境检查的输出
+      description: 把上面那条命令的输出整段贴进来。
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: 系统版本和芯片
+      placeholder: 比如 macOS 26.0，M2
+    validations:
+      required: true
+  - type: dropdown
+    id: assistant
+    attributes:
+      label: 用的助手
+      options:
+        - Claude Code
+        - TRAE
+        - 其他（写在下面）
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: 助手用的模型
+      placeholder: 比如 Claude Opus、Seed-2.1-Pro
+  - type: input
+    id: step
+    attributes:
+      label: 出错的是哪一步
+      placeholder: 比如 uv sync、下载模型、第 3 步转写、第 12 步出成片
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: 出错的原文
+      description: 脚本或命令打印的报错，整段复制贴进来，不要只贴截图。
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: 还有什么要说的
+      description: 比如原片是什么格式、多长，做了什么之后出的错。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 发之前
+      options:
+        - label: 我看过了，贴的内容里没有密钥（比如 PIXABAY_KEY 的值）和我不想公开的个人信息。
+          required: true

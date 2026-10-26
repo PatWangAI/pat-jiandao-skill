@@ -1,0 +1,63 @@
+# AI 剪辑的设置。剪切规则的参数写在 scripts/common.py 里，和 SPEC 第 4 节一一对应。
+# 这份进仓库，大家都一样。本机的路径（视频放哪、去哪找原片和讲稿）写进 config.local.yaml：
+# 它不进仓库，写了的项覆盖这里的同名项；样例是 config.local.example.yaml。没有它就用这里的默认值。
+
+# 每条视频的文件夹放在这里（相对仓库根目录，也可以写绝对路径，~ 是自己的主文件夹）
+videos_root: ~/视频制作
+
+# ffmpeg-full 带 libass，Homebrew 默认的 ffmpeg 不带，烧不了字幕。这是 Apple 芯片的 Mac 上 brew install ffmpeg-full 装到的位置
+ffmpeg: /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
+ffprobe: /opt/homebrew/opt/ffmpeg-full/bin/ffprobe
+
+# 找原片：这些文件夹里最新的 .mov、.mp4、.m4v 和录音
+video_dirs:
+  - ~/Downloads
+
+# 找讲稿：这个文件夹下期号最大的“第NN期_…”文件夹里，文件名含“讲稿”、版本号最高的一份。不写就不自动找，剪的时候给讲稿路径
+scripts_root:
+
+# 字幕字体：思源黑体粗体，SIL OFL 许可，来自 adobe-fonts/source-han-sans 的 SubsetOTF/CN
+font_file: fonts/SourceHanSansCN-Bold.otf
+font_name: Source Han Sans CN   # 家族名；粗体靠样式里 Bold=-1 选中 SourceHanSansCN-Bold.otf
+
+# 爆音门限（dB）：接缝前后 20 毫秒的峰值，比两侧较安静一侧 100 毫秒的平均音量高出多少算可疑。
+# 用阶段 0 试听过、没听出爆音的接缝标定（scripts/check.py --calibrate <阶段 0 的测试文件夹>，2026-10-07）：
+# 10 处里 9 处在静音里，最大 13.5 dB，加 6 dB 余量得 19.5 dB。19.50 秒那处是“上线嗯”在有声处硬切的，
+# 峰值是说话声本身（29.7 dB），不是爆音，没算进去；算进去门限会变成 35.7 dB，几乎查不出东西
+pop_threshold_db: 19.5
+
+# 阶段 3—5 成片（2026-10-07 定）
+pip_diameter: 200      # 左下角圆形人脸小窗直径（像素），要“大拇指指甲盖大小”，10-08 看过 160、200、240 的对比图定为 200
+pip_margin: 32         # 小窗离左边、底边的距离
+pip_border: 4          # 小窗白边宽度
+loudness_lufs: -16     # 成片响度（loudnorm 两遍），峰值不超过 -1.5 dB
+subtitle_char_px: 54   # 成片字幕每个字约多宽（像素），16 个字约 860 像素，居中放不会碰到左下角小窗；无人脸模式（10-18 加）没有小窗，字号照旧、水平居中
+subtitle_en_size: 48   # 英文字幕的字号（ASS 字号，中文是 76）；subtitles.json 每行写了 en 才出英文，放在中文下面（10-11 加）
+
+# 阶段 6 转场和背景音乐（2026-10-09 定）
+transition_seconds: 0.3   # 每次换画面的转场长度，按帧取整（0.3 秒 = 9 帧）；短于两倍转场的句子进入时硬切
+bgm_lufs: -32             # 背景音乐的响度，人声是 loudness_lufs（-16），所以音乐比人声低 16 dB；嫌大嫌小只改这个数
+
+# 竖屏（2026-10-24 从三种摆法里选了 C：没配素材的句子人脸全屏，配了素材的句子整屏换成素材，不叠小窗）。
+# 只有 inputs.json 记了 vertical（prepare.py --vertical）才用，不说竖屏就照旧出 16:9
+vertical_size: [1080, 1920]
+# 平台界面挡住的地方（像素，按 1080×1920 算）：顶部搜索栏、底部账号文案章节、右侧点赞评论一列（y 从 right_y0 到 right_y1）。
+# 10-24 量了两张真机截图（手机 816×1800，视频按 9:16 铺满）：抖音底部从 1429 起（“弹”字按钮，下面是定位、账号、文案、章节），
+# 右侧按钮从 x 907、y 857 起到底，顶部搜索栏到 95；小红书底部从 1563 起，没有右侧按钮，顶部到 93。两家取挡得多的，再留一点余量
+vertical_safe: {top: 160, bottom: 500, right: 180, right_y0: 850, right_y1: 1920}
+vertical_subtitle_char_px: 46   # 竖屏字幕每个字约多宽：16 个字约 740 像素，左右各让出右侧按钮那么宽（180）还放得下
+vertical_subtitle_en_size: 40   # 竖屏英文字幕的字号
+vertical_material_y: 0.35       # 横的素材放进竖屏时，素材中心在画面高度的 35% 处（偏上：让开底部字幕，少被右侧按钮挡），上下垫模糊的同一画面
+
+# 没有讲稿时（讲稿可选，第二期）字幕改错字用的术语表，相对仓库根目录；视频文件夹里的 术语表.md 也会读
+glossary:
+  - 术语表/通用.md
+
+# skill 里用到的本机文件（SKILL.md 按这些名字找）。不写就跳过那一步，或者按 SKILL.md 写的默认做法来
+finish_standard:          # 成片标准文件，可以用 * 通配，取日期最新的一份
+default_bgm_dir:          # 默认背景音乐所在的文件夹（里面有 bgm_1_*、bgm_2_*、bgm.json）
+insert_clip_example:      # 插入旧片段（带原声）的拼接脚本例子
+platform_version_tools:   # 出平台专用版时打码、换画面的工具文件夹
+cleanup_guide:            # 发布后清理大文件的说明
+run_log:                  # 运行记录记在哪（record_run.py）；不写就是 videos_root 下的 运行记录.md，相对路径从仓库根目录算
+jianying_drafts:          # 剪映的草稿文件夹（export_jianying.py）；不写就是 ~/Movies/JianyingPro/User Data/Projects/com.lveditor.draft

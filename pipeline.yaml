@@ -1,0 +1,171 @@
+# 流水线清单（PRD 第 4 节、SPEC 第 2—3 节）。SKILL.md 规定：先读这份清单，只跑 stage 不大于
+# current_stage 的步骤，按顺序调用脚本；清单里没有的步骤不做。<文件夹> 指设置里 videos_root 下的 <日期_名称>/（config.yaml，本机的在 config.local.yaml），
+# <运行> 指 cut_audio.py 新建的 runs/<时间>/。
+
+version: "0.8.2"  # skill 版本，运行记录里用；0.2 加了第 2 步找素材，0.3 加了配素材、预览、成片和成片自检，0.4 加了转场和背景音乐，
+                    # 0.5 加了无人脸模式（只用声音、不叠小窗，2026-10-18），
+                    # 0.6 背景音乐几首可以按时间轮流（bgm.json 的 switch_seconds，2026-10-19）
+                    # 0.7 设置拆成 config.yaml 和本机的 config.local.yaml、加环境检查 doctor.py（第二期“装得上”，剪出来的结果不变）
+                    # 0.7.1 没有讲稿时补两条规则：残句整段删、字幕不照转写的标点断行（10-25 TRAE 试跑发现；有讲稿时不变）
+                    # 0.7.2 竖屏放人脸的句子不用在 素材/plan.json 里登记（fetch_assets.py 不再报缺；横屏、无人脸照旧）
+                    # 0.7.3 竖屏默认整片人脸、不找素材，用户说要才给那几句配；人脸接人脸默认硬切（2026-10-25）
+                    # 0.7.4 开源首发：SKILL 和脚本里的称呼改成通用的（SKILL 里叫“用户”、报告里用“你”），个人习惯放本机的 CLAUDE.local.md（剪出来的结果不变）
+                    # 0.8 开源首发：粗剪和成片多写一份 .srt 字幕（时间和 .ass 一样）；可选的导到剪映（export_jianying.py，只有粗剪内容）
+                    # 0.8.1 第 07 期发现的三处：来源清单用 plan.json 的网址、手动补的可写 manual_source；截图聚焦先比长图和单屏图，
+                    #       对不上重截或改用单屏图；推拉不裁图里的黄框（params.keep），没有小窗时不往右偏（刀点、字幕不变）
+                    # 0.8.2 decisions.json 可写 blank_cut：用户说某处空白太长，两字之间的小杂音当静音、整段压到约 0.3 秒（第 08 期，2026-10-26；不写时刀点不变）
+current_stage: 6    # 阶段 6 转场和背景音乐（2026-10-09）
+
+steps:
+  - id: 1
+    name: 准备
+    stage: 1
+    who: prepare.py 列候选，Claude 列给用户确认
+    script: uv run python scripts/prepare.py --list，再 --video <原片> [--script <讲稿>] [--name <名称>] [--no-face]
+    inputs: [设置里 video_dirs 那几个文件夹里的原片（视频或纯录音）, 设置里 scripts_root 下期号最大的讲稿（可以没有）]
+    outputs: [<文件夹>/inputs.json, <文件夹>/原片/]
+    checks: 原片和讲稿都存在；复制后 sha256 和原文件相同；同一条原片接着用已有文件夹
+    confirm: 用哪条原片、哪份讲稿、叫什么名字，用户确认后再建文件夹
+    note: 纯录音自动按无人脸模式（inputs.json 记 no_face）；带画面的视频不露脸就加 --no-face
+
+  - id: 2
+    name: 找素材
+    stage: 2
+    who: Claude 照讲稿的镜头表写 素材/plan.json，fetch_assets.py 校验后自动截图、搜图库
+    script:
+      - uv run python scripts/prepare.py --script-only（还没有原片时，只按讲稿建文件夹）
+      - uv run python scripts/prepare.py --shot-table <文件夹>
+      - Claude 写 <文件夹>/素材/plan.json
+      - uv run python scripts/fetch_assets.py <文件夹>
+    inputs: [讲稿全文, 镜头表, AI 生图提示词和图库关键词, 来源]
+    outputs: [素材/plan.json, 素材/assets.json, 素材/素材清单.md, 素材/预览.jpg, 素材/<id>_page.jpg, 素材/<id>_focus.jpg, 素材/<id>_stock.*]
+    checks: plan.json 每句至少一项、必填项齐全；自动获取的都有来源链接；截图标题不小于 20 像素；一次不超过 10 分钟
+    confirm: 素材清单列给用户，手动的项用户补好后重跑
+    note: 只依赖讲稿，可以在录口播之前跑；要环境变量 PIXABAY_API_KEY
+
+  - id: 3
+    name: 预处理
+    stage: 1
+    script: uv run python scripts/preprocess.py <文件夹>
+    inputs: [<文件夹>/原片/]
+    outputs: [work/proxy.mp4, work/audio48.wav, work/audio.wav, work/preprocess.json]
+    checks: 不是 HDR；三个文件都从 0 开始，时长差不到 1 帧；方向和原片一致
+    confirm: false
+    note: 无人脸模式不用原片画面、不查 HDR，proxy.mp4 是按声音长度出的 1280×720 黑画面，preprocess.json 记 no_face
+
+  - id: 4
+    name: 转写
+    stage: 1
+    script: uv run python scripts/transcribe.py <文件夹>
+    inputs: [work/audio.wav]
+    outputs: [work/transcript.json, work/transcript.md]
+    checks: 三个模型都在；按原片 sha256 缓存
+    confirm: false
+
+  - id: 5
+    name: 方案（只做删除）
+    stage: 1
+    who: Claude 写 work/deletions.json，plan_cuts.py 算刀并校验
+    script: uv run python scripts/plan_cuts.py <文件夹>
+    inputs: [work/transcript.json, work/audio.wav, work/deletions.json, work/decisions.json, 讲稿全文]
+    outputs: [work/edl.json, work/plan.md]
+    checks: deletions.json 格式对；剪辑表校验通过才给用户看；不过时 Claude 改 deletions.json 重试，最多 3 次
+    confirm: true   # 方案在对话里分类列给用户，用户回“可以”才往下走
+
+  - id: 6
+    name: 剪辑表
+    stage: 1
+    script: uv run python scripts/validate_edl.py <文件夹>/work/edl.json
+    inputs: [work/edl.json]
+    outputs: [work/edl.json]
+    checks: 帧号范围、互不重叠、在片头片尾之内、字序号范围、转写稿和原片的 sha256
+    confirm: false
+
+  - id: 8
+    name: 剪
+    stage: 1
+    who: 脚本剪声音、出字幕初稿、渲染；Claude 对照讲稿改字幕
+    script:
+      - uv run python scripts/cut_audio.py <文件夹>
+      - uv run python scripts/make_subtitles.py <文件夹>
+      - Claude 读 <运行>/subtitles_auto.json，对照讲稿改字和断行，写 <运行>/subtitles.json
+      - uv run python scripts/render_rough.py <文件夹>
+    inputs: [work/edl.json, work/audio48.wav, work/audio.wav, work/proxy.mp4]
+    outputs: [<运行>/edl_final.json, <运行>/粗剪.wav, <运行>/subtitles_auto.json, <运行>/subtitles.json,
+              <运行>/subtitles.ass, <运行>/粗剪.srt, <运行>/粗剪.mp4]
+    checks: 复核最多 3 轮，每轮重跑校验；字幕渲染前校验（每个字恰好一行、顺序不变、每行不超过 16 个字）
+    confirm: false
+
+  - id: 9
+    name: 自检
+    stage: 1
+    script: uv run python scripts/check.py <文件夹>
+    inputs: [<运行>/]
+    outputs: [<运行>/check_report.md, <运行>/接缝试听.mp4]
+    checks: 只检查和报告，不自动改；有问题列给用户，由用户决定改不改
+    confirm: false
+
+  - id: 10
+    name: 记录
+    stage: 1
+    script: uv run python scripts/record_run.py <文件夹>
+    inputs: [<运行>/]
+    outputs: [运行记录表（设置里的 run_log；没设就是 <videos_root>/运行记录.md）]
+    checks: 误删、漏删、手动操作次数写“待填”，用户验收后由 Claude 补
+    confirm: false
+
+  - id: 10.1
+    name: 导到剪映（可选，用户说要在剪映里接着改时才做）
+    stage: 1
+    script: uv run python scripts/export_jianying.py <文件夹> [--drafts <剪映草稿文件夹>] [--name <草稿名>]
+    inputs: [<运行>/edl_final.json, <运行>/subtitles.json, 原片]
+    outputs: [剪映草稿文件夹里新建的 <文件夹名>_粗剪/（draft_content.json、draft_info.json、素材/原片副本）]
+    checks: 只新建、不覆盖同名草稿；写完读回来和剪辑表、字幕逐段比，对不上就报错
+    confirm: true   # 第一次导之前跟用户说会在剪映草稿文件夹里新建草稿、复制一份原片，用户同意再跑
+    note: 粗剪用户认可以后做；只有粗剪的内容（画面段、原声、字幕），配的素材、转场、背景音乐不进草稿。非官方功能，测过剪映专业版 9.6.0（Mac）
+
+  - id: 7
+    name: 配素材和预览
+    stage: 3
+    who: Claude 看转写稿、讲稿和素材写 work/shots.json（分句、配素材、动效、转场）和 work/pip.json（小窗取景，无人脸模式不写），compose.py 校验并出预览
+    script:
+      - Claude 写 <文件夹>/work/shots.json、<文件夹>/work/pip.json
+      - 坐姿前后有变化时：uv run python scripts/pip_track.py <文件夹>（自动跟踪人脸，写 pip.json 的 track；无人脸模式不跑）
+      - uv run python scripts/compose.py <文件夹> [--draft]
+    inputs: [<运行>/edl_final.json, <运行>/subtitles.json, <运行>/video_concat.mp4, 素材/assets.json, 讲稿全文]
+    outputs: [<运行>/composition.json, <运行>/预览.jpg, <运行>/小窗样帧.jpg]
+    checks: 每个说出来的字恰好属于一句；素材找得到、动效配得上；转场名字对（阶段 6，不写就逐句轮换，太短的句子硬切）；缺素材就停下（--draft 出草稿，无人脸模式缺的句子放黑底）
+    confirm: 预览图给用户看，用户说可以再出成片
+    note: 排在第 10 步之后：要用第 8 步剪好的结果（edl_final、subtitles、video_concat）；粗剪用户认可后再做
+
+  - id: 8.1
+    name: 挑背景音乐
+    stage: 6
+    who: Claude 从免费可商用曲库挑 3 首给用户试听，用户选一首；下载前问用户（文件名、来源、大小）
+    script: 用户同意后下载到 <文件夹>/素材/bgm.<扩展名>，Claude 写 <文件夹>/素材/bgm.json
+    inputs: [讲稿的内容和调子]
+    outputs: [素材/bgm.<扩展名> 或 bgm_1_*.mp3、bgm_2_*.mp3……, 素材/bgm.json（一首写 title、author、url、license、date；几首轮流放写 tracks，按时间轮流再写 switch_seconds）]
+    checks: 许可写明可商用、可用于社交平台视频；bgm.json 每首五项都有；素材/ 里的 bgm 文件和 bgm.json 对得上
+    confirm: true   # 选哪首、下不下载都由用户定
+    note: 一个视频挑一次，第一次出成片前做；不要音乐就不放 bgm 文件，成片照出
+
+  - id: 8.2
+    name: 渲染成片
+    stage: 4
+    script: uv run python scripts/render_final.py <文件夹>
+    inputs: [<运行>/composition.json]
+    outputs: [<运行>/成片.mp4（草稿是 成片_草稿.mp4）, <运行>/final.ass, <运行>/成片.srt（和成片同名，有英文就两行）, <运行>/final_audio.wav, <运行>/bgm_track.wav, <运行>/render_report.json]
+    checks: 成片表之后剪辑表、字幕、shots.json 改过就停；字体选中思源黑体；bgm 文件和 bgm.json 要么都有要么都没有
+    confirm: false
+    note: 验收要比渲染时间时，再跑一次 --no-effects（阶段 5，不超过 2 倍）或 --no-transitions（阶段 6，不超过 1.5 倍）
+
+  - id: 9.2
+    name: 成片自检
+    stage: 4
+    script: uv run python scripts/check_final.py <文件夹>
+    inputs: [<运行>/成片.mp4, <运行>/composition.json, <运行>/预览.jpg]
+    outputs: [<运行>/成片自检.md, <运行>/来源清单.md]
+    checks: 1920×1080、音画差不超过 0.1 秒、画面时间戳不跳、响度；每句不黑、没黑边；预览和成片一致；小窗不挡字幕（无人脸模式只报字幕位置）；动效和渲染时间比；
+            转场正中那帧不黑、没黑边；背景音乐全程有声音、来源清单里有它
+    confirm: false
+    note: 用户看过成片认可后，复制到 <文件夹>/成片/
