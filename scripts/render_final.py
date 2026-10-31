@@ -11,6 +11,9 @@
 3. 最后一遍叠左下角圆形小窗（人脸来自阶段 1 剪好的 video_concat.mp4，和声音同一份保留段），
    烧 16:9 版的字幕，配上统一到 -16 LUFS 的声音（整段乘同一个增益，超过 -2 dBFS 的峰用限幅器压住）。
    缺素材的句子不叠小窗（人脸已经是大画面）。
+   16:9 整屏人脸的句子（shots.json 的 asset 写“人脸”，2026-10-29 加）：从 video_concat.mp4 接着这句的帧号取，16:9 的
+   缩放到 1920×1080，别的比例照缺素材草稿的样子模糊垫底；不叠小窗。和叠小窗的句子之间有转场时，小窗在转场里
+   跟着那一句的画面淡出、淡入（不透明度等于转场里那一句画面占的比例，FFmpeg sendcmd 逐帧改 colorchannelmixer 的 aa）。
    无人脸模式（成片表的 no_face，2026-10-18 加）：不叠小窗、不读 video_concat.mp4，最后一遍只烧字幕、配声音；
    缺素材的草稿句放黑底“待补素材”；字幕照旧水平居中，不用再查躲不躲小窗。
    竖屏（成片表的 vertical，第二期，2026-10-24 选的摆法 C）：1080×1920，不叠小窗。人脸句从 video_concat.mp4 裁一块
@@ -45,7 +48,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from common import (CONFIG, FFMPEG, FPS, ROOT, SR_OUT, add_timing, analyze, archive, check_font, latest_run, read_json,
                     run_ffmpeg, sha256, text_width, write_json)
-from composite import crop_at, save_masks, todo_frame, vertical_bg, vertical_wrap, video_frames
+from composite import crop_at, full_face, save_masks, todo_frame, vertical_bg, vertical_wrap, video_frames, video_info
 from effects import H, W, Still, make
 from render_rough import FONT_EM_RATIO, ass_escape, ass_time, time_lines, write_srt
 from PIL import ImageFont
@@ -185,6 +188,14 @@ def render_scene(sc: dict, k: int, run: Path, mat: Path, seg_dir: Path, no_fx: b
     elif kind == "missing":
         frames = (todo_frame(sc["sentence"], face) for face in video_frames(run / "video_concat.mp4", sc["start_frame"], total))
         encode_parts(RAW_IN, "", parts, frames)
+    elif kind == "face":  # 16:9 整屏人脸（2026-10-29）：接着这一句的帧号取，尾巴也是往下放的画面
+        face_video = run / "video_concat.mp4"
+        fw, fh, _ = video_info(face_video)
+        if abs(fw / fh - W / H) < 0.01 * W / H:  # 16:9 的（宽高比差不到 1%）直接缩放到整屏
+            encode_parts(["-ss", f"{max(0.0, (sc['start_frame'] - 0.5) / FPS):.6f}", "-i", str(face_video), "-an"],
+                         f"scale={W}:{H}:flags=bicubic,setsar=1", parts)
+        else:  # 竖的、4:3 的：和预览一样用 full_face 模糊垫底
+            encode_parts(RAW_IN, "", parts, (full_face(face) for face in video_frames(face_video, sc["start_frame"], total)))
     elif kind == "video":  # 视频接着放，尾巴也是往下放的画面
         encode_parts(["-stream_loop", "-1", "-i", str(mat / sc["file"]), "-an"],
                      f"fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1", parts)
@@ -196,6 +207,35 @@ def render_scene(sc: dict, k: int, run: Path, mat: Path, seg_dir: Path, no_fx: b
         fx = make(kind, mat / sc["file"], eff, sc.get("params") or {}, n, FPS, sc.get("boxes"), sc.get("scale", 2))
         encode_parts(RAW_IN, "", parts, (fx.frame(min(i, n - 1)) for i in range(total)))
     return names
+
+
+def face_pip(scenes: list, heads: list, tails: list) -> tuple[list, list]:
+    """16:9 整屏人脸的句子（2026-10-29）不叠小窗。返回 (不叠小窗的帧范围 [起, 止), 小窗不透明度 [(帧号, 0—1), …])。
+    和叠小窗的句子之间有转场时，转场里小窗跟着那一句的画面淡出、淡入：xfade 第 i 帧里前一句占 1 - i/转场帧数，
+    小窗的不透明度就取这个比例，转场结束那一帧正好没了（或正好全出来）。硬切、人脸接人脸、接缺素材的句子，小窗直接不叠。
+    不透明度只在有淡出淡入时用（sendcmd 改 colorchannelmixer 的 aa）；整段不叠由 overlay 的 enable 按成片的帧算，一帧不差。
+    sendcmd 按人脸视频那一路的时间发命令，video_concat.mp4 的时间戳和成片会差一帧（横拍测试片实测，命令晚一帧生效），
+    所以改不透明度的命令都放在藏着的那几帧里：淡入前先归零、硬切出来前先设回 1，早一帧晚一帧都看不出来。"""
+    pip_on = lambda sc: sc["kind"] not in ("face", "missing")
+    hide, pts = [], []
+    for k, sc in enumerate(scenes):
+        if sc["kind"] != "face":
+            continue
+        a, b, h, t = sc["start_frame"], sc["end_frame"], heads[k], tails[k]
+        if h and k > 0 and pip_on(scenes[k - 1]):
+            pts += [(a + i, 1 - i / h) for i in range(h)]
+            a += h
+        nxt = k + 1 < len(scenes) and pip_on(scenes[k + 1])
+        if t and nxt:
+            pts += [(a + 1 if b - a > 1 else a, 0.0)]  # 藏着的时候归零，淡入从 0 开始
+            pts += [(b + i, i / t) for i in range(t)] + [(b + t, 1.0)]
+        else:
+            b += t
+            if nxt:
+                pts.append((max(a, b - 1), 1.0))  # 藏着的最后一帧设回 1，硬切出来就是整个小窗
+        hide.append((a, b))
+    fading = any(0 < v < 1 for _, v in pts)
+    return hide, sorted(pts) if fading else []
 
 
 def make_transition(seg_dir: Path, a: str, b: str, kind: str, frames: int, out: str) -> str:
@@ -514,7 +554,8 @@ def main() -> None:
     trial = a.no_fx or a.no_tr  # 只为比渲染时间出的版本
     name = "成片_无动效.mp4" if a.no_fx else "成片_无转场.mp4" if a.no_tr else ("成片_草稿.mp4" if comp["draft"] else "成片.mp4")
     srt = Path(name).with_suffix(".srt").name  # 和成片同名，播放器会自己带上
-    keep = [name] if trial else [name, "final.ass", srt, "final_audio.wav", "bgm_track.wav", "pip_mask.png", "pip_ring.png", "pip_track.cmd"]
+    keep = [name] if trial else [name, "final.ass", srt, "final_audio.wav", "bgm_track.wav", "pip_mask.png", "pip_ring.png", "pip_track.cmd",
+                                 "pip_fade.cmd", "ring_fade.cmd"]
     if old := archive(run, keep, copy=["render_report.json"]):
         print(f"上一版 {name} 和它的字幕、声音挪进了 {old.name}/")
 
@@ -580,8 +621,10 @@ def main() -> None:
         x, y, s = g["crop"]
         D, X, Y = g["diameter"], g["x"], g["y"]
         # 缺素材的句子（草稿）不叠小窗。有转场时：进入这句的转场里还看得到上一句，小窗留着；
-        # 离开这句的转场里还看得到全屏人脸，小窗晚一个转场再出来
+        # 离开这句的转场里还看得到全屏人脸，小窗晚一个转场再出来（16:9 整屏人脸的句子见 face_pip，转场里淡出淡入）
         gaps = [(sc["start_frame"] + heads[k], sc["end_frame"] + tails[k]) for k, sc in enumerate(scenes) if sc["kind"] == "missing"]
+        hide, fade = face_pip(scenes, heads, tails)  # 16:9 整屏人脸的句子也不叠小窗，转场里淡出淡入
+        gaps += hide
         en = ""
         if gaps:
             en = ":enable='not(" + "+".join(f"between(t,{(a_ - 0.5) / FPS:.4f},{(b - 0.5) / FPS:.4f})" for a_, b in gaps) + ")'"
@@ -592,11 +635,20 @@ def main() -> None:
             (work / "pip_track.cmd").write_text("\n".join(cmds) + "\n", encoding="utf-8")
             x0, y0, _ = crop_at(g, 0)
             crop_f = f"sendcmd=f=pip_track.cmd,crop@pip={s}:{s}:{x0}:{y0}"
+        c_fade = r_fade = ""
+        ring_in = ["-loop", "1"]
+        if fade:  # 小窗和白边各自一条 sendcmd，紧挨着要改的 colorchannelmixer，按经过的那一帧的时间改
+            for f_name, target in (("pip_fade.cmd", "colorchannelmixer@pipa"), ("ring_fade.cmd", "colorchannelmixer@ringa")):
+                (work / f_name).write_text("".join(f"{max(0.0, (k - 0.5) / FPS):.4f} {target} aa {v:.4f};\n" for k, v in fade),
+                                           encoding="utf-8")
+            c_fade = ",sendcmd=f=pip_fade.cmd,colorchannelmixer@pipa=aa=1"
+            r_fade = ",sendcmd=f=ring_fade.cmd,colorchannelmixer@ringa=aa=1"
+            ring_in = ["-loop", "1", "-framerate", str(FPS)]  # 白边也按 30 帧走，和小窗同一帧改
         graph = (f"[1:v]{crop_f},scale={D}:{D},format=rgba[f];[2:v]format=gray,scale={D}:{D}[m];"
-                 f"[f][m]alphamerge[c];[3:v]format=rgba[r];[0:v][c]overlay={X}:{Y}{en}[o1];[o1][r]overlay={X}:{Y}{en}[o2];"
+                 f"[f][m]alphamerge{c_fade}[c];[3:v]format=rgba{r_fade}[r];[0:v][c]overlay={X}:{Y}{en}[o1];[o1][r]overlay={X}:{Y}{en}[o2];"
                  f"[o2]subtitles=final.ass:fontsdir={fonts}[v]")
         ins = ["-i", str(seg_dir / "scenes.mp4"), "-i", str(run / comp["face_video"]), "-loop", "1", "-i", pm.name,
-               "-loop", "1", "-i", pr.name, "-i", audio.name]
+               *ring_in, "-i", pr.name, "-i", audio.name]
         a_map = "4:a"
     t2 = time.time()
     run_ffmpeg([*ins, "-filter_complex", graph, "-map", "[v]", "-map", a_map,

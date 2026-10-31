@@ -21,6 +21,10 @@ work/shots.json（Claude 看过转写稿、讲稿和素材后写）：
 竖屏（inputs.json 的 vertical，第二期，2026-10-24 选的摆法 C）：成片 1080×1920，不叠小窗。asset 写“人脸”的句子
   人脸全屏（effect 写“无”，无人脸模式不能用）；竖的图片、竖的视频铺满竖屏（竖图写的“模糊垫底”按“无”铺满）；横的素材照 16:9
   的动效出帧，放进竖屏中间、上下垫模糊的同一画面。成片表记 vertical（几何）、每句记 vfill（是不是铺满）。
+16:9 整屏人脸（2026-10-29 加，默认不用）：有人脸的 16:9 视频也可以某句 asset 写“人脸”（effect 写“无”）：这句整屏放
+  工作视频的画面（16:9 的原片缩放到 1920×1080，别的比例照缺素材草稿的样子模糊垫底），不叠小窗。哪几句放人脸要先在
+  素材/plan.json 顶上写 "face"（fetch_assets.py 记进 assets.json）：face 里的句子必须写“人脸”，16:9 下写了“人脸”的句子
+  也必须在 face 里（没有 assets.json 时不查这一条）。人脸接人脸默认硬切；和叠小窗的句子之间的转场里，小窗跟着淡出淡入（render_final.py）。
 work/pip.json（可以没有）：{"crop": [x, y, 边长]}，人脸小窗从工作视频里取哪一块正方形（像素）；
   还可以有 "track": [[粗剪秒数, x, y], …]（scripts/pip_track.py 自动跟踪写的），小窗跟着脸走，边长用 crop 的。
 
@@ -43,7 +47,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from common import (CONFIG, FPS, ROOT, add_timing, analyze, archive, join_text, keep_segments, latest_run, read_json, sha256,
                     to_rough, write_json)
-from composite import (crop_at, default_crop, overlay_pip, pip_geometry, todo_frame, vertical_bg, vertical_face,
+from composite import (crop_at, default_crop, full_face, overlay_pip, pip_geometry, todo_frame, vertical_bg, vertical_face,
                        vertical_layout, vertical_wrap, video_frames, video_info)
 from effects import Still, find_marks, make
 from fetch_assets import VIEW_H, used
@@ -81,7 +85,7 @@ def manual_source_of(r: dict) -> dict | None:
     return source_of(r)
 
 
-FACE = "人脸"  # 竖屏里这一句放人脸全屏（第二期）
+FACE = "人脸"  # 这一句放人脸全屏：竖屏（第二期）；16:9 不叠小窗（2026-10-29）
 
 
 def portrait(r: dict, mat: Path) -> bool:
@@ -150,7 +154,7 @@ def resolve(asset: str, by_id: dict, mat: Path) -> dict:
             return {"kind": "missing", "file": None, "source": None}
     elif (mat / asset).is_file():
         f = asset
-        m = re.match(r"(s\d{2}[a-z]?)_(fallback_|manual\.)?", asset)  # s07_fallback_focus.jpg 这类：反查是哪一项的哪一份
+        m = re.match(r"(s\d{2,}[a-z]?)_(fallback_|manual\.)?", asset)  # s07_fallback_focus.jpg、s100_manual.png 这类：反查是哪一项的哪一份
         if m and m.group(1) in by_id:
             r = by_id[m.group(1)]
             src = manual_source_of(r) if m.group(2) == "manual." else source_of(r.get("fallback") if m.group(2) else r)
@@ -163,7 +167,9 @@ def resolve(asset: str, by_id: dict, mat: Path) -> dict:
 
 
 def check_shots(shots: list, edl: dict, tok: list, sent_ids: list, by_id: dict, mat: Path,
-                face_ok: bool = False) -> tuple[list, list]:
+                face_ok: bool = False, face_listed: frozenset = frozenset(), face_strict: bool = False) -> tuple[list, list]:
+    """face_ok：有人脸（不是无人脸模式），可以写“人脸”。face_listed 是 plan.json 顶上 face 写的句子，必须写“人脸”；
+    face_strict（16:9、有 assets.json）：写了“人脸”的句子也必须在 face 里。"""
     errs, resolved = [], []
     lines = [{"text": "x", "from_token": s.get("from_token"), "to_token": s.get("to_token")} for s in shots]
     errs += [e.replace("行", "句", 1).replace("要进字幕的字", "要进字幕的字（说出来的字）") for e in check_lines(lines, edl, len(tok))
@@ -190,7 +196,11 @@ def check_shots(shots: list, edl: dict, tok: list, sent_ids: list, by_id: dict, 
             r = {"kind": "missing", "file": None}
         eff = s.get("effect")
         if r["kind"] == "face" and not face_ok:
-            errs.append(f"{name}：素材“{FACE}”（人脸全屏）只能用在竖屏、有人脸的视频里")
+            errs.append(f"{name}：素材“{FACE}”（人脸全屏）只能用在有人脸的视频里，无人脸模式不能用")
+        elif r["kind"] == "face" and face_strict and s.get("sentence") not in face_listed:
+            errs.append(f"{name}：16:9 整屏放人脸要先在 素材/plan.json 顶上的 face 里写上这句，再跑一遍 fetch_assets.py")
+        if s.get("sentence") in face_listed and r["kind"] != "face":
+            errs.append(f"{name}：plan.json 的 face 写了这句整屏放人脸，asset 要写“{FACE}”")
         if r["kind"] == "face" and eff != "无":
             errs.append(f"{name}：人脸全屏只能用“无”，不能用“{eff}”")
         if r["kind"] == "video" and eff != "无":
@@ -244,7 +254,9 @@ def main() -> None:
         if not need.exists():
             sys.exit(f"缺 {need.name}：先跑完阶段 1 的 cut_audio.py、render_rough.py")
 
-    errs, res = check_shots(shots, edl, tok, sorted(sents), by_id, mat, face_ok=vertical and not no_face)
+    errs, res = check_shots(shots, edl, tok, sorted(sents), by_id, mat, face_ok=not no_face,
+                            face_listed=frozenset(assets.get("face") or []),
+                            face_strict=not vertical and (mat / "assets.json").exists())
     if errs:
         print("shots.json 校验不通过：")
         for e in errs:
@@ -308,7 +320,7 @@ def main() -> None:
         label = None if k == 0 else s.get("transition") or order[(k - 1) % len(order)]
         note = "第一句" if k == 0 else ("写的" if s.get("transition") else "默认轮换")
         if label and not s.get("transition") and s["asset"] == FACE and shots[k - 1]["asset"] == FACE:
-            label, note = NO_TRANSITION, "人脸接人脸，画面本来就连着，硬切"  # 竖屏整片人脸时不逐句轮换转场
+            label, note = NO_TRANSITION, "人脸接人脸，画面本来就连着，硬切"  # 整片（或连着几句）人脸时不逐句轮换转场
         if label and tf == 0:
             label, note = NO_TRANSITION, "config.yaml 的 transition_seconds 是 0，整片硬切"
         elif label and label != NO_TRANSITION and b - a_ < 2 * tf:
@@ -345,6 +357,9 @@ def main() -> None:
         elif sc["kind"] == "missing":
             k = n // 2
             img = todo_frame(sc["sentence"], None if no_face else next(video_frames(face_video, sc["start_frame"] + k, 1)))
+        elif sc["kind"] == "face":  # 16:9 整屏人脸，不叠小窗
+            k = n // 2
+            img = full_face(next(video_frames(face_video, sc["start_frame"] + k, 1)))
         else:
             src = mat / sc["file"]
             if sc["kind"] == "video":
@@ -404,8 +419,10 @@ def main() -> None:
         smp.save(run / "小窗样帧.jpg", quality=85)
     write_json(run / "composition.json", comp)
     add_timing(run, "compose（配素材和预览）", time.time() - t0)
+    faces = [sc["sentence"] for sc in scenes if sc["kind"] == "face"]
     print(f"成片表写好了：{len(scenes)} 句，{'草稿，缺素材的第 ' + '、'.join(map(str, missing)) + (' 句放黑底' if no_face else ' 句放全屏人脸') if missing else '素材齐全'}"
-          f"{'，无人脸模式（不叠小窗）' if no_face else ''}；预览 → {run / '预览.jpg'}")
+          f"{'，无人脸模式（不叠小窗）' if no_face else ''}"
+          f"{'，第 ' + '、'.join(map(str, faces)) + ' 句整屏放人脸（不叠小窗）' if faces and not lay else ''}；预览 → {run / '预览.jpg'}")
     if comp["not_spoken"]:
         print(f"注意：讲稿里这几句口播里没说：第 {'、'.join(map(str, comp['not_spoken']))} 句")
     if pip and not pip_path.exists():

@@ -2,19 +2,24 @@
 
 用法：uv run python scripts/fetch_assets.py <视频文件夹> [--force]
 
-plan.json 每条一项素材，kind 是下面之一：
+plan.json 每条一项素材，id 是 s 加句号（不到两位前面补 0），同一句多项再加一个小写字母：s01、s04b、s100、s127b；
+sentence 是第几句，desc 写画面。kind 是下面之一：
   截图      url、highlight（要高亮的原文，可以没有）、credit（媒体名和日期）
   图库图片  query（英文关键词，可以是几组，按顺序试）
   图库视频  query
   AI生图    prompt
   手动视频  url、time_range，第三方的要 credit
   录屏      note
+  现成图片  note（从哪来、怎么拿）；别人的图（下载的照片、自己截的网页、访谈画面截图）还写 url（出处那一页）和 credit，
+            来源清单照它记；自己做的（封面、自己画的图）可以不写（2026-10-31 加）
 主方案要手动、又有能自动拿的备选时，写 fallback（一项素材，格式同上）。
 手动补的文件不是从 url 那一页拿的（比如官方 PDF、X 帖的配图、视频的帖子页），写 manual_source：
   {"media": 媒体名, "date": 日期, "url": 实际来源的网址}，来源清单照它写；改它不会重取自动的那份。
 来源清单的链接用 plan.json 里写的 url（用上的是主方案就写主方案的，是备选就写备选的），不用截图时地址栏的地址
 （往下滚会自动换成下一篇、被拦到验证页、跳到别的语言版，第 07 期都遇到过）；地址栏变了在素材清单里注明。
 竖屏有人脸时（inputs.json 记 vertical、没有 no_face）：放人脸全屏的句子不写，不算缺；items 可以是空的（整片人脸）。
+16:9 有人脸时，整屏放人脸（不配素材、不叠小窗）的句子要在顶上明写 "face": [1, 2, 41]（句号列表，和 items 平级，
+  2026-10-29 加）：写了的不算缺，items 里不能再给它们配素材；不写就和以前一样，每句都要有素材。竖屏也可以写，无人脸模式不能写。
 
 自动的三种：
   截图：本机 Chrome 无头打开网页，窗口 1920×1080、两倍清晰度，出 <id>_page.jpg（整页长图，最长 8000 像素高）
@@ -24,7 +29,7 @@ plan.json 每条一项素材，kind 是下面之一：
         对不上就回到顶上重量、重截一次长图，还对不上，截图聚焦改用单屏图，素材清单里写明。
         以前截的没比过的，重跑时用留下的两张图补比（不重截）。
   图库：Pixabay 搜索，取第一个够大的结果，记页面链接和作者。要环境变量 PIXABAY_API_KEY，没有就标“需手动”。
-手动的三种标“需手动”，在素材清单里写清楚怎么拿、存成 素材/<id>_manual.<扩展名>；放进去以后重跑，记为“手动补齐”。
+手动的四种标“需手动”，在素材清单里写清楚怎么拿、存成 素材/<id>_manual.<扩展名>；放进去以后重跑，记为“手动补齐”。
 重跑时，plan.json 里没改过、文件还在的项不重取；加 --force 全部重取，--only s08,s14 只重取这几项。
 
 输出（都在 素材/）：assets.json、素材清单.md、预览.jpg。
@@ -48,7 +53,7 @@ from common import CONFIG, FFMPEG, ROOT, read_json, write_json
 from prepare import sentences
 
 AUTO = {"截图", "图库图片", "图库视频"}
-MANUAL = {"AI生图", "手动视频", "录屏"}
+MANUAL = {"AI生图", "手动视频", "录屏", "现成图片"}
 VIEW_W, VIEW_H, SCALE = 1920, 1080, 2
 MAX_PAGE_H = 8000
 READABLE_PX = 20          # 标题字号不小于 20 CSS 像素：整页宽放进 1920 宽的画面时就是 20 像素高的字
@@ -198,13 +203,27 @@ HEADLINE_JS = r"""
 """
 
 
-def check_plan(plan: dict, sent_ids: list[int], face_ok: bool = False) -> list[str]:
+def check_plan(plan: dict, sent_ids: list[int], face_ok: bool = False, has_face: bool = True) -> list[str]:
     """校验 Claude 写的 plan.json：每句至少一项、kind 合法、各类必填项齐全。
-    face_ok（竖屏、有人脸）：没写素材的句子放人脸全屏，不算缺，items 也可以是空的（整片人脸）。"""
-    errs = []
+    face_ok（竖屏、有人脸）：没写素材的句子放人脸全屏，不算缺，items 也可以是空的（整片人脸）。
+    顶上的 face（句号列表，16:9 要整屏放人脸时明写）：这几句不算缺、不能再配素材；has_face 是 False（无人脸模式）时不能写。"""
+    errs, listed = [], set()
+    face = plan.get("face")
+    if face is not None:
+        if not has_face:
+            errs.append("无人脸模式（只用声音）没有人脸可放，plan.json 不能写 face")
+        elif not isinstance(face, list) or not all(isinstance(k, int) and not isinstance(k, bool) for k in face):
+            errs.append('plan.json 的 face 要写成句号的列表，比如 "face": [1, 2, 41]')
+        else:
+            bad = [k for k in face if k not in sent_ids]
+            if bad:
+                errs.append(f"plan.json 的 face 里第 {'、'.join(map(str, bad))} 句不是讲稿里的句号（讲稿有第 {sent_ids[0]}—{sent_ids[-1]} 句）")
+            if len(set(face)) != len(face):
+                errs.append("plan.json 的 face 里有重复的句号")
+            listed = set(face) & set(sent_ids)
     items = plan.get("items")
-    if not isinstance(items, list) or (not items and not face_ok):
-        return ["plan.json 里没有 items"]
+    if not isinstance(items, list) or (not items and not face_ok and not listed):
+        return errs + ["plan.json 里没有 items"]
 
     def check_one(it, name, allow_fallback=True):
         k = it.get("kind")
@@ -212,10 +231,12 @@ def check_plan(plan: dict, sent_ids: list[int], face_ok: bool = False) -> list[s
             errs.append(f"{name} 的 kind “{k}” 不是 {'、'.join(sorted(AUTO | MANUAL))} 之一")
             return
         need = {"截图": ["url", "credit"], "图库图片": ["query"], "图库视频": ["query"],
-                "AI生图": ["prompt"], "手动视频": ["url", "time_range"], "录屏": ["note"]}[k]
+                "AI生图": ["prompt"], "手动视频": ["url", "time_range"], "录屏": ["note"], "现成图片": ["note"]}[k]
         for f in need:
             if not it.get(f):
                 errs.append(f"{name}（{k}）缺 {f}")
+        if k == "现成图片" and it.get("url") and not it.get("credit"):  # 不写 credit，来源清单就没有这张图的来源
+            errs.append(f"{name}（现成图片）写了 url 就要写 credit（媒体名和日期）")
         cr = it.get("credit")
         if cr is not None and not (isinstance(cr, dict) and cr.get("media") and cr.get("date")):
             errs.append(f"{name} 的 credit 要写成 {{\"media\": 媒体名, \"date\": 日期}}")
@@ -235,21 +256,24 @@ def check_plan(plan: dict, sent_ids: list[int], face_ok: bool = False) -> list[s
     for it in items:
         iid = it.get("id", "")
         name = f"素材 {iid or '（没写 id）'}"
-        if not re.fullmatch(r"s\d{2}[a-z]?", str(iid)):
-            errs.append(f"{name} 的 id 要写成 s01、s04b 这样")
+        m = re.fullmatch(r"s(\d{2,})[a-z]?", str(iid))  # 100 句以上的讲稿是 s100、s127b（2026-10-31 放开，以前只到 s99）
+        if not m:
+            errs.append(f"{name} 的 id 要写成 s01、s04b、s127 这样")
         if iid in seen:
             errs.append(f"{name} 的 id 重复")
         seen.add(iid)
         sn = it.get("sentence")
         if not isinstance(sn, int) or sn not in sent_ids:
             errs.append(f"{name} 的 sentence {sn!r} 不是讲稿里的句号（讲稿有第 {sent_ids[0]}—{sent_ids[-1]} 句）")
-        elif not str(iid).startswith(f"s{sn:02d}"):
-            errs.append(f"{name} 的 id 应以 s{sn:02d} 开头（第 {sn} 句）")
+        elif m and m.group(1) != f"{sn:02d}":  # 数字就是句号：第 10 句写 s100、s010 都不行
+            errs.append(f"{name} 的 id 和句号对不上：第 {sn} 句写 s{sn:02d}、s{sn:02d}b 这样")
+        if sn in listed:
+            errs.append(f"{name}：第 {sn} 句写在 face 里（整屏放人脸），又配了素材，二选一")
         if not it.get("desc"):
             errs.append(f"{name} 没写 desc（画面）")
         check_one(it, name)
     covered = {it.get("sentence") for it in items}
-    missing = [k for k in sent_ids if k not in covered]
+    missing = [k for k in sent_ids if k not in covered and k not in listed]
     if missing and not face_ok:
         errs.append(f"这几句没有素材：第 {'、'.join(map(str, missing))} 句")
     return errs
@@ -580,6 +604,8 @@ def manual_hint(it: dict) -> str:
         return f"打开 {it['url']}，取 {it['time_range']}，下载或录屏"
     if k == "录屏":
         return it["note"]
+    if k == "现成图片":
+        return it["note"] + (f"（出处 {it['url']}）" if it.get("url") else "")
     if k == "截图":
         return f"在浏览器里打开 {it['url']}，截一张整页图（要高亮：{it.get('highlight') or '无'}）"
     q = it["query"][0] if isinstance(it["query"], list) else it["query"]
@@ -656,15 +682,17 @@ def main() -> None:
         sys.exit(f"没有 {plan_path}：先由 Claude 照讲稿的镜头表写素材清单")
     plan = read_json(plan_path)
     face_ok = bool(inputs.get("vertical")) and not inputs.get("no_face")  # 竖屏有人脸：没写素材的句子放人脸
-    errs = check_plan(plan, sorted(sents), face_ok)
+    errs = check_plan(plan, sorted(sents), face_ok, not inputs.get("no_face"))
     if errs:
         print("plan.json 校验不通过：")
         for e in errs:
             print("  - " + e)
         sys.exit(1)
-    face = sorted(set(sents) - {it["sentence"] for it in plan["items"]}) if face_ok else []
+    listed = sorted(set(plan.get("face") or []))  # 16:9 明写的整屏人脸句（竖屏没写的句子本来就放人脸）
+    face = sorted(set(sents) - {it["sentence"] for it in plan["items"]}) if face_ok else listed
     if not plan["items"]:
-        print(f"plan.json 一项素材也没有：竖屏整片放人脸全屏（{len(sents)} 句），不用找素材，配素材时每句 asset 写“人脸”")
+        print(f"plan.json 一项素材也没有：竖屏整片放人脸全屏（{len(sents)} 句），不用找素材，配素材时每句 asset 写“人脸”" if face_ok else
+              f"plan.json 一项素材也没有：face 写了全部 {len(sents)} 句，整片放人脸全屏，不用找素材，配素材时每句 asset 写“人脸”")
         return
 
     prev_path = out / "assets.json"
@@ -749,14 +777,16 @@ def main() -> None:
                "highlight_outside_page": outside, "url_changed": jumped, "page_uses_focus": page_off,
                "seconds": seconds, "fetched": fetched,
                "longest_run_seconds": max(x["seconds"] for x in runs)}
-    write_json(prev_path, {"script": inputs["script"], "sentences": sent_now, "summary": summary, "runs": runs, "items": results})
+    write_json(prev_path, {"script": inputs["script"], "sentences": sent_now, "summary": summary, "runs": runs, "items": results,
+                           **({"face": listed} if listed else {})})  # compose.py 拿它核对 shots.json 的“人脸”句
     contact_sheet(out, results, out / "预览.jpg")
     write_list(out / "素材清单.md", inputs, sents, results, summary)
     print(f"素材：{n} 项，自动 {cnt['自动']}、自动备选 {cnt['自动（备选）']}、手动补齐 {cnt['手动补齐']}、还要手动 {cnt['需手动']}；"
           f"自动占 {summary['auto_ratio']:.0%}（含备选 {summary['auto_ratio_with_fallback']:.0%}）；这次取了 {fetched} 项、用时 {seconds} 秒，"
           f"历次最长 {summary['longest_run_seconds']} 秒 → {out / '素材清单.md'}")
     if face:
-        print(f"没写素材的第 {'、'.join(map(str, face))} 句放人脸全屏（竖屏），配素材时 asset 写“人脸”")
+        print(f"没写素材的第 {'、'.join(map(str, face))} 句放人脸全屏（竖屏），配素材时 asset 写“人脸”" if face_ok else
+              f"plan.json 的 face 写的第 {'、'.join(map(str, face))} 句整屏放人脸（不叠小窗），配素材时 asset 写“人脸”")
     for label, ids in (("标题字号小于 20 像素", unreadable), ("没找到要高亮的句子", no_hl), ("自动获取却没记来源链接", no_link),
                        ("高亮句在整页长图外面（页面超过 8000 CSS 像素）", outside),
                        ("截图时地址栏变了（来源照 plan.json 记，核对截的是不是这一页）", jumped),
@@ -791,7 +821,9 @@ def write_list(path: Path, inputs: dict, sents: dict, results: list, sm: dict) -
          f"还要手动 {sm['需手动']} 项。自动获取占 {sm['auto_ratio']:.0%}（算上备选 {sm['auto_ratio_with_fallback']:.0%}）。"
          f"这次取了 {sm['fetched']} 项、用时 {sm['seconds']} 秒，历次最长 {sm['longest_run_seconds']} 秒（验收要求不超过 10 分钟）。"
          f"缩略图见 预览.jpg（截图上的红框是要高亮的句子）。"
-         + (f"没写素材的第 {'、'.join(map(str, sm['face_sentences']))} 句放人脸全屏（竖屏）。" if sm.get("face_sentences") else ""), "",
+         + ((f"没写素材的第 {'、'.join(map(str, sm['face_sentences']))} 句放人脸全屏（竖屏）。" if inputs.get("vertical") else
+             f"第 {'、'.join(map(str, sm['face_sentences']))} 句整屏放人脸（plan.json 的 face，不叠小窗）。")
+            if sm.get("face_sentences") else ""), "",
          "| 句 | 素材 | 画面 | 方式 | 状态 | 文件 | 来源 |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for r in results:
         use = r if r.get("files") else (r.get("fallback") or {})

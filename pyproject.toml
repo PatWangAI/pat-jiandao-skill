@@ -1,6 +1,6 @@
 [project]
 name = "pat-jiandao-skill"
-version = "0.8.3"
+version = "0.8.6"
 description = "Pat 剪刀 · AI 剪辑 skill：把手机录的中文口播剪成带中英字幕的成片"
 requires-python = ">=3.12,<3.13"
 dependencies = [
